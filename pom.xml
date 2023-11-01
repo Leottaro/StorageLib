@@ -6,7 +6,7 @@
 
   <groupId>fr.leottaro</groupId>
   <artifactId>StorageLib</artifactId>
-  <version>1.0</version>
+  <version>1.1</version>
 
   <name>StorageLib</name>
 
@@ -47,7 +47,7 @@
             <archive>
               <manifest>
                 <addClasspath>true</addClasspath>
-                <mainClass>fr.leottaro.storage.StorageApp</mainClass>
+                <mainClass>fr.leottaro.storage_lib.StorageLib</mainClass>
               </manifest>
             </archive>
           </configuration>

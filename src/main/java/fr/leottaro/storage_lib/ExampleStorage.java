@@ -1,8 +1,8 @@
-package fr.leottaro.storage;
+package fr.leottaro.storage_lib;
 
 import java.io.Serializable;
 
-public class ExampleStorage implements Serializable {
+class ExampleStorage implements Serializable {
     public static final String gameName = "Test";
     private int Id;
     private int Score;
