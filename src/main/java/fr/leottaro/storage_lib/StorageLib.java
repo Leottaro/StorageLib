@@ -56,10 +56,10 @@ public class StorageLib {
                 path.toFile().delete();
                 path.toFile().createNewFile();
             }
+            return true;
         } catch (Exception e) {
             return false;
         }
-        return true;
     }
 
     public static void write(Object object) {
@@ -77,12 +77,38 @@ public class StorageLib {
         }
     }
 
+    public static Object read(Class<? extends Object> clazz) {
+        try {
+            ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+            FileInputStream fis = new FileInputStream(storagePath() + clazz.getName());
+            byte reading = (byte) fis.read();
+            while (reading != -1) {
+                bytes.write(reading);
+                reading = (byte) fis.read();
+            }
+            fis.close();
+            return fromBytes(decryptedBytes(bytes.toByteArray()));
+        } catch (IOException e) {
+            return null;
+        }
+    }
+
     private static byte[] toBytes(Object object) {
         try {
             ByteArrayOutputStream baOut = new ByteArrayOutputStream();
             ObjectOutputStream oOut = new ObjectOutputStream(baOut);
             oOut.writeObject(object);
             return baOut.toByteArray();
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private static Object fromBytes(byte[] data) {
+        try {
+            ByteArrayInputStream baIn = new ByteArrayInputStream(data);
+            ObjectInputStream in = new ObjectInputStream(baIn);
+            return in.readObject();
         } catch (Exception e) {
             return null;
         }
@@ -105,22 +131,6 @@ public class StorageLib {
         return cryptedData;
     }
 
-    public static Object read(Class<? extends Object> clazz) {
-        try {
-            ByteArrayOutputStream bytes = new ByteArrayOutputStream();
-            FileInputStream fis = new FileInputStream(storagePath() + clazz.getName());
-            byte reading = (byte) fis.read();
-            while (reading != -1) {
-                bytes.write(reading);
-                reading = (byte) fis.read();
-            }
-            fis.close();
-            return fromBytes(decryptedBytes(bytes.toByteArray()));
-        } catch (IOException e) {
-            return null;
-        }
-    }
-
     private static byte[] decryptedBytes(byte[] data) {
         byte[] decryptedData = new byte[data.length];
         Integer temp;
@@ -138,53 +148,28 @@ public class StorageLib {
         return decryptedData;
     }
 
-    private static Object fromBytes(byte[] data) {
-        try {
-            ByteArrayInputStream baIn = new ByteArrayInputStream(data);
-            ObjectInputStream in = new ObjectInputStream(baIn);
-            return in.readObject();
-        } catch (Exception e) {
-            return null;
-        }
-    }
-
-    public static boolean postServerJson(String gameName, Object object) {
-        try {
-            String finalData = String.format("{\"userName\":\"%s\",\"class\":\"%s\",\"data\":%s}",
-                    System.getProperty("user.name"), object.getClass().getName(), getJsonFromObject(object, false));
-            URL url = new URL(baseUrl + gameName + "/postData");
-            HttpURLConnection connection = (HttpURLConnection) url.openConnection();
-            connection.setDoOutput(true);
-            connection.setRequestProperty("Content-Type", "application/json");
-            connection.setRequestMethod("POST");
-            connection.setConnectTimeout(5000);
-            connection.setReadTimeout(5000);
-            connection.connect();
-
-            OutputStream output = connection.getOutputStream();
-            output.write(finalData.getBytes("UTF-8"));
-            output.flush();
-            output.close();
-
-            if (connection.getResponseCode() != 200) {
-                throw new Exception(connection.getResponseMessage());
-            }
-
-            connection.disconnect();
-            return true;
-        } catch (Exception e) {
-            return false;
-        }
+    private static boolean isWrapper(Class<? extends Object> clazz) {
+        return (clazz == Integer.class)
+                || (clazz == Long.class)
+                || (clazz == Boolean.class)
+                || (clazz == Byte.class)
+                || (clazz == Character.class)
+                || (clazz == Float.class)
+                || (clazz == Double.class)
+                || (clazz == Short.class)
+                || (clazz == Void.class);
     }
 
     public static String getJsonFromObject(Object object) {
-        return getJsonFromObject(object, true);
-    }
-
-    public static String getJsonFromObject(Object object, boolean getClass) {
         try {
             PropertyDescriptor[] beanProperties = Introspector.getBeanInfo(object.getClass()).getPropertyDescriptors();
-            String[] jsonData = new String[beanProperties.length];
+            int N = 0;
+            for (int i = 0; i < beanProperties.length; i++) {
+                if (beanProperties[i].getReadMethod() == null) {
+                    N++;
+                }
+            }
+            String[] jsonData = new String[beanProperties.length - N];
 
             // I always want the class first !
             for (int i = 0; i < beanProperties.length; i++) {
@@ -196,99 +181,33 @@ public class StorageLib {
                 }
             }
 
-            for (int i = 0; i < beanProperties.length; i++) {
-                String keyName = beanProperties[i].getName();
+            int jsonI = 0;
+            for (int beanI = 0; beanI < beanProperties.length; beanI++) {
+                while (beanProperties[beanI].getReadMethod() == null) {
+                    beanI++;
+                }
+                String keyName = beanProperties[beanI].getName();
                 String valueName;
-                Object value = beanProperties[i].getReadMethod().invoke(object);
+                Object value = beanProperties[beanI].getReadMethod().invoke(object);
                 if (value instanceof Character) {
                     valueName = String.valueOf(value);
                 } else if (value instanceof String) {
                     valueName = (String) value;
                 } else if (value instanceof Class) {
                     valueName = ((Class<?>) value).getName();
-                } else {
+                } else if (isWrapper(value.getClass())) {
                     valueName = value.toString();
+                } else {
+                    valueName = getJsonFromObject(value);
                 }
                 keyName = keyName.replaceAll("(?=[\\\"\\\\])", "\\\\");
                 valueName = valueName.replaceAll("(?=[\\\"\\\\])", "\\\\");
-                jsonData[i] = String.format("\"%s\":\"%s\"", keyName, valueName);
+                jsonData[jsonI] = String.format("\"%s\":\"%s\"", keyName, valueName);
+                jsonI++;
             }
-            if (getClass) {
-                return "{" + String.join(",", jsonData) + "}";
-            }
-            String[] withoutClassData = new String[jsonData.length - 1];
-            for (int i = 0; i < jsonData.length - 1; i++) {
-                withoutClassData[i] = jsonData[i + 1];
-            }
-            return "{" + String.join(",", withoutClassData) + "}";
+            return "{" + String.join(",", jsonData) + "}";
         } catch (Exception e) {
             return "{}";
-        }
-    }
-
-    public static Object getObjectFromJson(String json) {
-        try {
-            if (!json.startsWith("{\"class\":\"")) {
-                throw new Exception(
-                        "The given string has to contain the class !");
-            }
-
-            Pattern jsonPattern = Pattern.compile(
-                    "(?:\\\")(?<key>.*?(?<!\\\\)(?:\\\\\\\\)*)(?:\\\":\\\")(?<val>.*?(?<!\\\\)(?:\\\\\\\\)*)(?:\\\")",
-                    Pattern.DOTALL);
-            Matcher jsonMatcher = jsonPattern.matcher(json);
-
-            int N = 0;
-            while (jsonMatcher.find()) {
-                N++;
-            }
-
-            String[] jsonProperties = new String[N];
-            String[] jsonValues = new String[N];
-
-            Pattern bsPattern = Pattern.compile("\\\\(?<char>[\\\\\\\"])");
-            Matcher bsMatcher;
-            jsonMatcher.find(0);
-            N = 0;
-            do {
-                String key = jsonMatcher.group("key");
-                bsMatcher = bsPattern.matcher(key);
-                key = bsMatcher.replaceAll("${char}");
-
-                String val = jsonMatcher.group("val");
-                bsMatcher = bsPattern.matcher(val);
-                val = bsMatcher.replaceAll("${char}");
-
-                jsonProperties[N] = key;
-                jsonValues[N] = val;
-                N++;
-            } while (jsonMatcher.find());
-
-            Class<? extends Object> className = Class.forName(jsonValues[0]);
-            Object object = className.getDeclaredConstructor().newInstance();
-
-            PropertyDescriptor[] beanProperties = Introspector.getBeanInfo(object.getClass()).getPropertyDescriptors();
-            for (int i = 1; i < beanProperties.length; i++) {
-                for (int j = 1; j < jsonProperties.length; j++) {
-                    if (beanProperties[i].getName().equals(jsonProperties[j])) {
-                        Class<? extends Object> valueClass = toWrapper(beanProperties[i].getPropertyType());
-                        Object jsonValue;
-                        if (valueClass == Character.class) {
-                            jsonValue = jsonValues[j].charAt(0);
-                        } else if (valueClass == String.class) {
-                            jsonValue = jsonValues[j];
-                        } else {
-                            Method m = valueClass.getMethod("valueOf", String.class);
-                            jsonValue = m.invoke(valueClass, jsonValues[j]);
-                        }
-                        beanProperties[i].getWriteMethod().invoke(object, valueClass.cast(jsonValue));
-                    }
-                }
-            }
-
-            return object;
-        } catch (Exception e) {
-            return null;
         }
     }
 
@@ -316,6 +235,105 @@ public class StorageLib {
             return Void.class;
 
         return clazz;
+    }
+
+    public static Object getObjectFromJson(String json) {
+        try {
+            Pattern jsonPattern = Pattern.compile(
+                    "(?:\\\")(?<key>.*?(?<!\\\\)(?:\\\\\\\\)*)(?:\\\":\\\")(?<val>.*?(?<!\\\\)(?:\\\\\\\\)*)(?:\\\")",
+                    Pattern.DOTALL);
+            Matcher jsonMatcher = jsonPattern.matcher(json);
+
+            int jsonSize = 0;
+            while (jsonMatcher.find()) {
+                jsonSize++;
+            }
+            jsonMatcher.reset();
+
+            String[] jsonProperties = new String[jsonSize];
+            String[] jsonValues = new String[jsonSize];
+
+            Pattern bsPattern = Pattern.compile("\\\\(?<char>[\\\\\\\"])");
+            Matcher bsMatcher;
+            for (int jsonI = 0; jsonI < jsonSize && jsonMatcher.find(); jsonI++) {
+                String key = jsonMatcher.group("key");
+                bsMatcher = bsPattern.matcher(key);
+                key = bsMatcher.replaceAll("${char}");
+
+                String val = jsonMatcher.group("val");
+                bsMatcher = bsPattern.matcher(val);
+                val = bsMatcher.replaceAll("${char}");
+
+                jsonProperties[jsonI] = key;
+                jsonValues[jsonI] = val;
+            }
+
+            Class<? extends Object> className = Class.forName(jsonValues[0]);
+            Object object = className.getDeclaredConstructor().newInstance();
+
+            PropertyDescriptor[] beanProperties = Introspector.getBeanInfo(object.getClass()).getPropertyDescriptors();
+            beanLoop: for (int beanI = 1; beanI < beanProperties.length; beanI++) {
+                while (beanProperties[beanI].getWriteMethod() == null) {
+                    beanI++;
+                    if (beanI == beanProperties.length)
+                        break beanLoop;
+                }
+                jsonLoop: for (int jsonI = 0; jsonI < jsonProperties.length; jsonI++) {
+                    while (!jsonProperties[jsonI].equals(beanProperties[beanI].getName())) {
+                        jsonI++;
+                        if (jsonI == jsonProperties.length)
+                            break jsonLoop;
+                    }
+                    Class<? extends Object> valueClass = toWrapper(beanProperties[beanI].getPropertyType());
+                    Object jsonValue;
+                    if (valueClass == Character.class) {
+                        jsonValue = jsonValues[jsonI].charAt(0);
+                    } else if (valueClass == String.class) {
+                        jsonValue = jsonValues[jsonI];
+                    } else if (jsonValues[jsonI].charAt(0) != '{' || isWrapper(valueClass)
+                            || jsonValues[jsonI].charAt(jsonValues[jsonI].length() - 1) != '}') {
+                        Method m = valueClass.getMethod("valueOf", String.class);
+                        jsonValue = m.invoke(valueClass, jsonValues[jsonI]);
+                    } else {
+                        jsonValue = getObjectFromJson(jsonValues[jsonI]);
+                    }
+                    beanProperties[beanI].getWriteMethod().invoke(object, valueClass.cast(jsonValue));
+                }
+            }
+
+            return object;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    public static boolean postServerJson(Object object) {
+        try {
+            String finalData = String.format("{\"userName\":\"%s\",\"class\":\"%s\",\"data\":%s}",
+                    System.getProperty("user.name"), object.getClass().getName(), getJsonFromObject(object));
+            URL url = new URL(baseUrl + object.getClass().getName() + "/postData");
+            HttpURLConnection connection = (HttpURLConnection) url.openConnection();
+            connection.setDoOutput(true);
+            connection.setRequestProperty("Content-Type", "application/json");
+            connection.setRequestMethod("POST");
+            connection.setConnectTimeout(5000);
+            connection.setReadTimeout(5000);
+            connection.connect();
+
+            OutputStream output = connection.getOutputStream();
+            output.write(finalData.getBytes("UTF-8"));
+            output.flush();
+            output.close();
+
+            if (connection.getResponseCode() != 200) {
+                throw new Exception(connection.getResponseMessage());
+            }
+
+            connection.disconnect();
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     private static String getServerJson(URL url) {
@@ -353,69 +371,74 @@ public class StorageLib {
         }
     }
 
-    public static void syncLocalServer(Class<? extends Object> clazz, String gameName) {
+    public static void syncLocalServer(Class<? extends Object> clazz) {
         Object localObject = read(clazz);
-        Object serverObject = getServerJson(gameName);
+        Object serverObject = getServerJson(clazz.getName());
 
-        if (!postServerJson(gameName, localObject)) {
+        if (!postServerJson(localObject)) {
             write(serverObject);
         }
     }
 
+    /*
+     * Condition for the class and every parameter classes:
+     * Local storing conditions:
+     * - the classes must implements Serializable
+     * Json transformation conditions:
+     * - contains empty constructor
+     * - getters for variables you want to be in the JSON
+     * - setters for variables you want to translate from the JSON
+     * Server storing conditions:
+     * - the classes must be able to convert to JSON
+     * - the server must have enabled Testit
+     */
     public static void main(String[] args) {
-        final TestStorage testObj = new TestStorage(true, Byte.MAX_VALUE, Short.MIN_VALUE, Integer.MAX_VALUE,
-                Long.MIN_VALUE, Float.MAX_VALUE, Double.MIN_VALUE, '\"', "He\"l\\lo W\\\"orld\\");
-        boolean everythingOk = true;
-        String objJson;
+        final TestStorage testObj = new TestStorage(new TestClass("He\"l\\loW\\\"orld\\", -1, 1), true, Byte.MAX_VALUE,
+                Short.MIN_VALUE, Integer.MAX_VALUE,
+                Long.MIN_VALUE, Float.MAX_VALUE, Double.MIN_VALUE, '\"', "He\"l\\loW\\\"orld\\");
+        String jsonObj = getJsonFromObject(testObj);
         String test;
+        boolean everythingOk = true;
 
         // test Json transformation
-        objJson = getJsonFromObject(testObj);
-        test = getJsonFromObject(getObjectFromJson(objJson));
-        if (!objJson.equals(test)) {
-            System.out.println("Json Transformation isn't working !");
+        test = getJsonFromObject(getObjectFromJson(jsonObj));
+        if (!jsonObj.equals(test)) {
+            System.out.println("LEOTTARO'S STORAGE LIBRARY ERROR MESSAGE: Json Transformation isn't working !");
             everythingOk = false;
         }
 
         // test local storage
         write(testObj);
-        objJson = getJsonFromObject(testObj);
         test = getJsonFromObject(read(TestStorage.class));
-        if (!objJson.equals(test)) {
-            System.out.println("Local Storage isn't working !");
+        if (!jsonObj.equals(test)) {
+            System.out.println("LEOTTARO'S STORAGE LIBRARY ERROR MESSAGE: Local Storage isn't working !");
             everythingOk = false;
         }
 
         // test server storage
         if (getServerJson() != null) {
-            postServerJson(TestStorage.gameName, testObj);
-            objJson = getJsonFromObject(testObj, false);
-            test = getServerJson(TestStorage.gameName);
-            if (!objJson.equals(test)) {
-                System.out.println("Server Storage isn't working !");
+            postServerJson(testObj);
+            test = getServerJson(TestStorage.class.getName());
+            if (!jsonObj.equals(test)) {
+                System.out.println("LEOTTARO'S STORAGE LIBRARY ERROR MESSAGE: Server Storage isn't working !");
                 everythingOk = false;
             }
-        } else {
-            System.out.println("Server Storage isn't working !");
-            everythingOk = false;
-        }
 
-        // test local and server sync
-        if (getServerJson() != null) {
-            syncLocalServer(TestStorage.class, TestStorage.gameName);
-            String localObject = getJsonFromObject(read(TestStorage.class), false);
-            String serverObject = getServerJson(TestStorage.gameName);
+            // test local and server sync
+            syncLocalServer(TestStorage.class);
+            String localObject = getJsonFromObject(read(TestStorage.class));
+            String serverObject = getServerJson(TestStorage.class.getName());
             if (!localObject.equals(serverObject)) {
-                System.out.println("Local/Server sync isn't working !");
+                System.out.println("LEOTTARO'S STORAGE LIBRARY ERROR MESSAGE: Local/Server sync isn't working !");
                 everythingOk = false;
             }
         } else {
-            System.out.println("Local/Server sync isn't working !");
+            System.out.println("LEOTTARO'S STORAGE LIBRARY ERROR MESSAGE: Can't connect to the Server !");
             everythingOk = false;
         }
 
         if (everythingOk) {
-            System.out.println("Everything is working");
+            System.out.println("LEOTTARO'S STORAGE LIBRARY: Everything is working");
         }
     }
 }

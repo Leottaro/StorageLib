@@ -2,12 +2,8 @@ package fr.leottaro.storage_lib;
 
 import java.io.Serializable;
 
-/*
- * The storage classes must have an empty constructor
- */
-// the class Serializable and have getters/setters for jsonable variables
 class TestStorage implements Serializable {
-    public static final String gameName = "Test";
+    private TestClass testClass;
     private boolean bit;
     private byte b;
     private short s;
@@ -18,7 +14,9 @@ class TestStorage implements Serializable {
     private char c;
     private String string;
 
-    public TestStorage(boolean bit, byte b, short s, int i, long l, float f, double d, char c, String string) {
+    public TestStorage(TestClass testClass, boolean bit, byte b, short s, int i, long l, float f, double d, char c,
+            String string) {
+        this.testClass = testClass;
         this.bit = bit;
         this.b = b;
         this.s = s;
@@ -31,11 +29,11 @@ class TestStorage implements Serializable {
     }
 
     public TestStorage() {
-        this(false, (byte) 0, (short) 0, 0, (long) 0, (float) 0., 0., ' ', "");
+        this(new TestClass(), false, (byte) 0, (short) 0, 0, (long) 0, (float) 0., 0., ' ', "");
     }
 
-    public boolean isBit() {
-        return bit;
+    public TestClass getTestClass() {
+        return testClass;
     }
 
     public byte getB() {
@@ -68,6 +66,10 @@ class TestStorage implements Serializable {
 
     public String getString() {
         return string;
+    }
+
+    public void setTestClass(TestClass testClass) {
+        this.testClass = testClass;
     }
 
     public void setBit(boolean bit) {
@@ -104,5 +106,37 @@ class TestStorage implements Serializable {
 
     public void setString(String string) {
         this.string = string;
+    }
+
+    @Override
+    public boolean equals(Object obj) {
+        if (!(obj instanceof TestStorage))
+            return false;
+        TestStorage object = (TestStorage) obj;
+
+        if (this.bit != object.bit)
+            return false;
+        if (this.bit != object.bit)
+            return false;
+        if (this.b != object.b)
+            return false;
+        if (this.s != object.s)
+            return false;
+        if (this.i != object.i)
+            return false;
+        if (this.l != object.l)
+            return false;
+        if (this.f != object.f)
+            return false;
+        if (this.d != object.d)
+            return false;
+        if (this.c != object.c)
+            return false;
+        if (!this.string.equals(object.string))
+            return false;
+        if (!this.testClass.equals(object.testClass))
+            return false;
+
+        return true;
     }
 }
